@@ -35,31 +35,36 @@ extension Sequence where Element: Sendable {
     ///   whether the element should be included in the returned array.
     /// - Returns: An array of the elements that `isIncluded` allowed.
     public func concurrentFilter(priority: TaskPriority? = nil, _ isIncluded: @Sendable @escaping (Element) async throws -> Bool) async rethrows -> [Element] {
-        let result: ContiguousArray<(Int, Element)> = try await withThrowingTaskGroup(
-            of: (Int, Element)?.self
+        let result: ContiguousArray<(Int, Element?)> = try await withThrowingTaskGroup(
+            of: (Int, Element?).self
         ) { group in
             for (index, element) in self.enumerated() {
                 group.addTask(priority: priority) {
                     if try await isIncluded(element) {
                         return (index, element)
                     } else {
-                        return nil
+                        return (index, nil)
                     }
                 }
             }
             // Code for collating results copied from Sequence.map in Swift codebase
-            var result = ContiguousArray<(Int, Element)>()
+            let initialCapacity = underestimatedCount
+            var result = ContiguousArray<(Int, Element?)>()
+            result.reserveCapacity(initialCapacity)
 
             // Add all the elements.
             while let next = try await group.next() {
-                if let enumerated = next {
-                    result.append(enumerated)
-                }
+                result.append(next)
             }
             return result
         }
 
-        return result.sorted(by: { $0.0 < $1.0 }).map(\.1)
+        return [Element?](unsafeUninitializedCapacity: result.count) { buffer, count in
+            for value in result {
+                (buffer.baseAddress! + value.0).initialize(to: value.1)
+            }
+            count = result.count
+        }.compactMap { $0 }
     }
 
     /// Returns an array containing, in order, the elements of the sequence
@@ -77,35 +82,40 @@ extension Sequence where Element: Sendable {
     ///   whether the element should be included in the returned array.
     /// - Returns: An array of the elements that `isIncluded` allowed.
     public func concurrentFilter(maxConcurrentTasks: Int, priority: TaskPriority? = nil, _ isIncluded: @Sendable @escaping (Element) async throws -> Bool) async rethrows -> [Element] {
-        let result: ContiguousArray<(Int, Element)> = try await withThrowingTaskGroup(
-            of: (Int, Element)?.self
+        let result: ContiguousArray<(Int, Element?)> = try await withThrowingTaskGroup(
+            of: (Int, Element?).self
         ) { group in
-            var result = ContiguousArray<(Int, Element)>()
+            let initialCapacity = underestimatedCount
+            var result = ContiguousArray<(Int, Element?)>()
+            result.reserveCapacity(initialCapacity)
 
             for (index, element) in self.enumerated() {
                 if index >= maxConcurrentTasks {
-                    if let enumerated = try await group.next() ?? nil {
-                        result.append(enumerated)
+                    if let next = try await group.next() {
+                        result.append(next)
                     }
                 }
                 group.addTask(priority: priority) {
                     if try await isIncluded(element) {
                         return (index, element)
                     } else {
-                        return nil
+                        return (index, nil)
                     }
                 }
             }
 
             // Add remaining elements, if any.
             while let next = try await group.next() {
-                if let enumerated = next {
-                    result.append(enumerated)
-                }
+                result.append(next)
             }
             return result
         }
 
-        return result.sorted(by: { $0.0 < $1.0 }).map(\.1)
+        return [Element?](unsafeUninitializedCapacity: result.count) { buffer, count in
+            for value in result {
+                (buffer.baseAddress! + value.0).initialize(to: value.1)
+            }
+            count = result.count
+        }.compactMap { $0 }
     }
 }
