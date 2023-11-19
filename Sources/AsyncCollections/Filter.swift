@@ -64,7 +64,9 @@ extension Sequence where Element: Sendable {
                 (buffer.baseAddress! + value.0).initialize(to: value.1)
             }
             count = result.count
-        }.compactMap { $0 }
+        }
+        .filter { $0 != nil }
+        .map(\.unsafelyUnwrapped) /// `$0 != nil` because of the `filter`
     }
 
     /// Returns an array containing, in order, the elements of the sequence
@@ -116,6 +118,8 @@ extension Sequence where Element: Sendable {
                 (buffer.baseAddress! + value.0).initialize(to: value.1)
             }
             count = result.count
-        }.compactMap { $0 }
+        }
+        .filter { $0 != nil }
+        .map(\.unsafelyUnwrapped) /// `$0 != nil` because of the `filter`
     }
 }
